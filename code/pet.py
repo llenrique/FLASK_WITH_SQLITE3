@@ -5,6 +5,25 @@ from flask_jwt import jwt_required
 
 class PetsList(Resource):
     def get(self):
+        connection = sqlite3.connect('dogcare.db')
+        cursor = connection.cursor()
+
+        select_query = "SELECT * FROM pets"
+
+        results = cursor.execute(select_query)
+
+        pets = []
+
+        for row in results:
+            pets.append({
+                'name': row[1],
+                'race': row[2],
+                'age': row[3],
+                'personality': row[4]
+            })
+
+        connection.close()
+
         return {'pets': pets}
 
 
@@ -47,6 +66,25 @@ class Pet(Resource):
             return pet
         return {'message': 'Pet not found'}, 404
 
+    @classmethod
+    def create_pet(cls, pet):
+        connection = sqlite3.connect('dogcare.db')
+        cursor = connection.cursor()
+
+        insert_query = "INSERT INTO pets VALUES(NULL, ?, ?, ?, ?)"
+
+        cursor.execute(
+            insert_query, (
+                pet['name'],
+                pet['race'],
+                pet['age'],
+                pet['personality']
+            )
+        )
+
+        connection.commit()
+        connection.close()
+
     @jwt_required()
     def post(self, name):
         if self.find_by_pet_name(name):
@@ -61,16 +99,10 @@ class Pet(Resource):
             'age': data['age'],
             'personality': data['personality']
         }
-
-        connection = sqlite3.connect('dogcare.db')
-        cursor = connection.cursor()
-
-        insert_query = "INSERT INTO pets VALUES(NULL, ?, ?, ?, ?)"
-
-        cursor.execute(insert_query, (pet['name'], pet['race'], pet['age'], pet['personality']))
-
-        connection.commit()
-        connection.close()
+        try:
+            self.create_pet(pet)
+        except Exception as e:
+            return {'message': 'An error ocurred registering your pet {}'}, 500
 
         return pet, 201
 
@@ -93,16 +125,35 @@ class Pet(Resource):
     @jwt_required()
     def put(self, name):
         data = Pet.parser.parse_args()
-        pet = next(filter(lambda x: x['name'] == name, pets), None)
-        if pet is None:
-            pet = {
-                'id': data['id'],
-                'name': name,
-                'race': data['race'],
-                'age': data['age'],
-                'personality': data['personality']
-            }
-            pets.append(pet)
+        current_pet = self.find_by_pet_name(name)
+        updated_pet = {
+            'id': data['id'],
+            'name': name,
+            'race': data['race'],
+            'age': data['age'],
+            'personality': data['personality']
+        }
+
+        if current_pet is None:
+            try:
+                self.create_pet(updated_pet)
+            except Exception as e:
+                return {'message': "An error ocurred creating the pet"}, 500
         else:
-            pet.update(data)
-        return pet
+            try:
+                self.update(updated_pet)
+            except Exception as e:
+                return {'message': "An error ocurred updating the pet"}, 500
+        return updated_pet
+
+    @classmethod
+    def update(cls, pet):
+        connection = sqlite3.connect('dogcare.db')
+        cursor = connection.cursor()
+
+        delete_query = "UPDATE pets SET race=?, personality=?"
+
+        cursor.execute(delete_query, (pet['race'], pet['personality']))
+
+        connection.commit()
+        connection.close()
